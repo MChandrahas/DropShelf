@@ -44,7 +44,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
         
-        # FIX: Changed icon to 'open-menu-symbolic' (Three Lines)
+        # MENU BUTTON
         self.prefs_btn = Gtk.Button(icon_name="open-menu-symbolic")
         self.prefs_btn.add_css_class("flat")
         self.prefs_btn.set_tooltip_text("Menu")
@@ -86,8 +86,6 @@ class DropShelfWindow(Adw.ApplicationWindow):
     def on_prefs_clicked(self, btn):
         prefs_window = Adw.PreferencesWindow(transient_for=self)
         prefs_window.set_default_size(500, 600)
-        
-        # This adds the Search Icon inside the preferences window automatically
         prefs_window.set_search_enabled(True) 
 
         # PAGE 1: GENERAL
@@ -107,7 +105,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
         row_dl.set_active(True)
         group_behavior.add(row_dl)
 
-        # Group: Shortcuts
+        # Group: Shortcuts Navigation
         group_shortcuts = Adw.PreferencesGroup(title="Shortcuts")
         page_general.add(group_shortcuts)
 
@@ -115,27 +113,58 @@ class DropShelfWindow(Adw.ApplicationWindow):
         row_shortcuts.set_subtitle("View all available shortcuts")
         row_shortcuts.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         row_shortcuts.set_activatable(True)
-        row_shortcuts.connect("activated", self.show_shortcuts_window)
+        
+        row_shortcuts.connect("activated", lambda row: self.push_shortcuts_page(prefs_window))
         group_shortcuts.add(row_shortcuts)
 
         prefs_window.present()
 
-    def show_shortcuts_window(self, *args):
-        shortcuts = Gtk.ShortcutsWindow(transient_for=self, modal=True)
-        section = Gtk.ShortcutsSection()
-        section.set_visible(True)
-        shortcuts.set_child(section)
+    def push_shortcuts_page(self, prefs_window):
+        # 1. Create the Navigation Page (The Container)
+        page = Adw.NavigationPage(title="Shortcuts", tag="shortcuts")
         
-        group = Gtk.ShortcutsGroup(title="General")
-        section.add_group(group)
-        self.add_shortcut_row(group, "<Ctrl>Drag", "Drag Single File")
-        self.add_shortcut_row(group, "Drag", "Batch Drag (All Files)")
-        self.add_shortcut_row(group, "<Ctrl>Q", "Quit Application")
-        shortcuts.present()
+        # 2. FIX: Create a Toolbar View to hold the Header Bar
+        toolbar_view = Adw.ToolbarView()
+        page.set_child(toolbar_view)
+        
+        # 3. FIX: Add the Header Bar (This creates the 'Back' arrow)
+        header = Adw.HeaderBar()
+        toolbar_view.add_top_bar(header)
+        
+        # 4. Build the Content (Scroll -> Clamp -> Box -> Group)
+        scroll = Gtk.ScrolledWindow()
+        # We put the scroll area as the MAIN content of the toolbar view
+        toolbar_view.set_content(scroll)
+        
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(600)
+        scroll.set_child(clamp)
+        
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        clamp.set_child(box)
 
-    def add_shortcut_row(self, group, accelerator, title):
-        shortcut = Gtk.ShortcutsShortcut(accelerator=accelerator, title=title)
-        group.add_shortcut(shortcut)
+        # 5. Add the Shortcuts Group
+        group = Adw.PreferencesGroup(title="General Interactions")
+        box.append(group)
+        
+        # 6. Add Rows with Gtk.ShortcutLabel
+        self.add_shortcut_row_native(group, "<Ctrl>Drag", "Drag Single File")
+        self.add_shortcut_row_native(group, "Drag", "Batch Drag (All Files)")
+        self.add_shortcut_row_native(group, "<Ctrl>Q", "Quit Application")
+
+        # 7. Push the page
+        prefs_window.push_subpage(page)
+
+    def add_shortcut_row_native(self, group, accelerator, title):
+        row = Adw.ActionRow(title=title)
+        shortcut_label = Gtk.ShortcutLabel(accelerator=accelerator)
+        shortcut_label.set_valign(Gtk.Align.CENTER)
+        row.add_suffix(shortcut_label)
+        group.add(row)
 
     # --- KEYBOARD LOGIC ---
     def on_key_pressed(self, controller, keyval, keycode, state):
