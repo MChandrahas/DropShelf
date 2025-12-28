@@ -23,7 +23,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
-        self.app = app # Save app reference for shortcuts
+        self.app = app 
         
         # KEYBOARD TRACKER
         self.ctrl_pressed = False
@@ -44,10 +44,10 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
         
-        # PREFERENCES BUTTON (Search Icon)
-        self.prefs_btn = Gtk.Button(icon_name="system-search-symbolic")
+        # FIX: Changed icon to 'open-menu-symbolic' (Three Lines)
+        self.prefs_btn = Gtk.Button(icon_name="open-menu-symbolic")
         self.prefs_btn.add_css_class("flat")
-        self.prefs_btn.set_tooltip_text("Settings & Shortcuts")
+        self.prefs_btn.set_tooltip_text("Menu")
         self.prefs_btn.connect("clicked", self.on_prefs_clicked)
         self.header_bar.pack_start(self.prefs_btn)
         
@@ -86,7 +86,9 @@ class DropShelfWindow(Adw.ApplicationWindow):
     def on_prefs_clicked(self, btn):
         prefs_window = Adw.PreferencesWindow(transient_for=self)
         prefs_window.set_default_size(500, 600)
-        prefs_window.set_search_enabled(True) # ENABLE THE SEARCH BAR
+        
+        # This adds the Search Icon inside the preferences window automatically
+        prefs_window.set_search_enabled(True) 
 
         # PAGE 1: GENERAL
         page_general = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
@@ -96,22 +98,19 @@ class DropShelfWindow(Adw.ApplicationWindow):
         group_behavior = Adw.PreferencesGroup(title="Behavior")
         page_general.add(group_behavior)
 
-        # Switch: Always Keep Items
         row_keep = Adw.SwitchRow(title="Always keep items when dragging out")
         row_keep.set_subtitle("This option also disables the Alt shortcut")
         group_behavior.add(row_keep)
 
-        # Switch: Download Images
         row_dl = Adw.SwitchRow(title="Download images from URLs")
         row_dl.set_subtitle("Automatically save images from dropped links")
-        row_dl.set_active(True) # Default On
+        row_dl.set_active(True)
         group_behavior.add(row_dl)
 
         # Group: Shortcuts
         group_shortcuts = Adw.PreferencesGroup(title="Shortcuts")
         page_general.add(group_shortcuts)
 
-        # Action: Show Shortcuts
         row_shortcuts = Adw.ActionRow(title="Keyboard Shortcuts")
         row_shortcuts.set_subtitle("View all available shortcuts")
         row_shortcuts.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
@@ -123,19 +122,15 @@ class DropShelfWindow(Adw.ApplicationWindow):
 
     def show_shortcuts_window(self, *args):
         shortcuts = Gtk.ShortcutsWindow(transient_for=self, modal=True)
-        
         section = Gtk.ShortcutsSection()
         section.set_visible(True)
         shortcuts.set_child(section)
         
         group = Gtk.ShortcutsGroup(title="General")
         section.add_group(group)
-        
-        # Define the shortcuts to display
         self.add_shortcut_row(group, "<Ctrl>Drag", "Drag Single File")
         self.add_shortcut_row(group, "Drag", "Batch Drag (All Files)")
         self.add_shortcut_row(group, "<Ctrl>Q", "Quit Application")
-        
         shortcuts.present()
 
     def add_shortcut_row(self, group, accelerator, title):
@@ -202,7 +197,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
             self.save_state()
         return True
 
-    # --- BOILERPLATE & FACTORY ---
+    # --- BOILERPLATE ---
     def on_close_request(self, window):
         self.set_visible(False)
         return True
