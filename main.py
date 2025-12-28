@@ -24,7 +24,6 @@ class DropShelfWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
         
-        # KEY CHANGE: HIDE on Close is back!
         self.connect("close-request", self.on_close_request)
         
         self.state_file = os.path.join(os.getcwd(), "state.json")
@@ -33,10 +32,18 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.toolbar_view = Adw.ToolbarView()
         self.set_content(self.toolbar_view)
 
+        # --- HEADER BAR SETUP ---
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
         
-        # Add QUIT button (Essential since X hides)
+        # 1. ADD SEARCH ENTRY
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search files...")
+        self.search_entry.set_hexpand(True)
+        # We put it in the "Title" area of the header
+        self.header_bar.set_title_widget(self.search_entry)
+        
+        # Quit Button
         quit_btn = Gtk.Button(icon_name="application-exit-symbolic")
         quit_btn.add_css_class("flat")
         quit_btn.set_tooltip_text("Quit DropShelf")
@@ -46,19 +53,46 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.scrolled_window = Gtk.ScrolledWindow()
         self.toolbar_view.set_content(self.scrolled_window)
 
+        # --- FILTER SETUP ---
+        # 2. Define the filter logic
+        self.filter = Gtk.CustomFilter.new(self.filter_func)
+        
+        # 3. Create the FilterModel wrapping the Store
+        self.filter_model = Gtk.FilterListModel(model=self.store, filter=self.filter)
+
+        # 4. Connect Search Entry to Filter
+        self.search_entry.connect("search-changed", self.on_search_changed)
+
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", self.on_factory_setup)
         factory.connect("bind", self.on_factory_bind)
 
-        selection_model = Gtk.NoSelection(model=self.store)
+        # 5. ListView now looks at filter_model, NOT store
+        selection_model = Gtk.NoSelection(model=self.filter_model)
         self.list_view = Gtk.ListView(model=selection_model, factory=factory)
         self.scrolled_window.set_child(self.list_view)
 
         self.setup_drop_target()
         self.load_state()
 
+    # --- FILTER LOGIC ---
+    def filter_func(self, item):
+        # Get text from search bar
+        query = self.search_entry.get_text()
+        
+        # If empty, show everything
+        if not query:
+            return True
+            
+        # Check if filename contains query (case-insensitive)
+        return query.lower() in item.filename.lower()
+
+    def on_search_changed(self, entry):
+        # Tell the filter it needs to re-run
+        self.filter.changed(Gtk.FilterChange.DIFFERENT)
+
+    # --- REST OF THE APP (Unchanged) ---
     def on_close_request(self, window):
-        # Hide the window instead of destroying it
         self.set_visible(False)
         return True
 
@@ -133,10 +167,18 @@ class DropShelfWindow(Adw.ApplicationWindow):
         return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
 
     def on_delete_clicked(self, btn, list_item):
-        position = list_item.get_position()
-        if position != Gtk.INVALID_LIST_POSITION:
-            self.store.remove(position)
-            self.save_state()
+        # NOTE: When filtering, the "position" is in the FILTERED list,
+        # but we need to remove from the REAL store.
+        # We find the item object first.
+        file_item = list_item.get_item()
+        
+        # Find where this item is in the main store
+        # (A bit inefficient for huge lists, but fine for <1000 items)
+        for i in range(self.store.get_n_items()):
+            if self.store.get_item(i) == file_item:
+                self.store.remove(i)
+                break
+        self.save_state()
 
     def setup_drop_target(self):
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
@@ -164,11 +206,9 @@ class DropShelfApp(Adw.Application):
     def do_activate(self):
         win = self.props.active_window
         if not win:
-            # First launch: Create the window
             win = DropShelfWindow(self)
             win.present()
         else:
-            # Second launch: Toggle visibility
             if win.is_visible():
                 win.set_visible(False)
             else:
