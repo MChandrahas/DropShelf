@@ -1,69 +1,132 @@
 import sys
+import os
 import gi
 
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, Gio, Gdk
+from gi.repository import Gtk, Adw, Gio, Gdk, GObject, GLib
 
+# --- DATA MODEL ---
+class FileItem(GObject.Object):
+    __gtype_name__ = 'FileItem'
+    
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        self.filename = os.path.basename(path)
+        self.icon_name = "text-x-generic"
+
+# --- MAIN WINDOW ---
 class DropShelfWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
 
-        # 1. Main Layout
+        self.store = Gio.ListStore(item_type=FileItem)
+
         self.toolbar_view = Adw.ToolbarView()
         self.set_content(self.toolbar_view)
 
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
 
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.content_box.set_valign(Gtk.Align.CENTER)
-        self.content_box.set_halign(Gtk.Align.CENTER)
-        
-        # 2. UI Elements
-        self.status_icon = Gtk.Image.new_from_icon_name("folder-drag-accept-symbolic")
-        self.status_icon.set_pixel_size(64)
-        
-        self.status_label = Gtk.Label(label="Drop Files Here")
-        self.status_label.add_css_class("title-1")
-        
-        self.content_box.append(self.status_icon)
-        self.content_box.append(self.status_label)
-        
-        self.toolbar_view.set_content(self.content_box)
+        self.scrolled_window = Gtk.ScrolledWindow()
+        self.toolbar_view.set_content(self.scrolled_window)
 
-        # 3. Enable Drag and Drop
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self.on_factory_setup)
+        factory.connect("bind", self.on_factory_bind)
+
+        selection_model = Gtk.NoSelection(model=self.store)
+        self.list_view = Gtk.ListView(model=selection_model, factory=factory)
+        self.scrolled_window.set_child(self.list_view)
+
         self.setup_drop_target()
 
+    # --- ROW CREATION ---
+    def on_factory_setup(self, factory, list_item):
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        
+        icon = Gtk.Image()
+        icon.set_pixel_size(32)
+        
+        label = Gtk.Label()
+        label.set_halign(Gtk.Align.START)
+        label.set_hexpand(True)
+        label.set_ellipsize(3)
+
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn.add_css_class("flat")
+        delete_btn.connect("clicked", self.on_delete_clicked, list_item)
+
+        box.append(icon)
+        box.append(label)
+        box.append(delete_btn)
+        
+        list_item.set_child(box)
+        
+        # Configure Drag Source
+        drag_source = Gtk.DragSource()
+        
+        # FIX: STRICTLY allow only COPY. 
+        # This forces the file manager to duplicate the file, not move it.
+        drag_source.set_actions(Gdk.DragAction.COPY)
+        
+        drag_source.connect("prepare", self.on_drag_prepare, list_item)
+        box.add_controller(drag_source)
+
+        list_item.widgets = (icon, label)
+
+    def on_factory_bind(self, factory, list_item):
+        icon, label = list_item.widgets
+        file_item = list_item.get_item()
+        icon.set_from_icon_name(file_item.icon_name)
+        label.set_label(file_item.filename)
+
+    # --- DRAG SOURCE (Dragging OUT) ---
+    def on_drag_prepare(self, source, x, y, list_item):
+        file_item = list_item.get_item()
+        gfile = Gio.File.new_for_path(file_item.path)
+        
+        # THE FIX: Manually build a "text/uri-list"
+        # This is the universal format Linux file managers understand.
+        # It looks like: file:///home/user/file.txt\r\n
+        
+        uri = gfile.get_uri()
+        uri_string = f"{uri}\r\n" # Must end with new line
+        
+        # Create a GLib.Bytes object
+        bytes_data = GLib.Bytes.new(uri_string.encode('utf-8'))
+        
+        print(f"DEBUG: Dragging URI -> {uri}")
+        
+        # Hand this raw text data to the OS
+        return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
+
+    # --- DELETE ---
+    def on_delete_clicked(self, btn, list_item):
+        position = list_item.get_position()
+        if position != Gtk.INVALID_LIST_POSITION:
+            self.store.remove(position)
+
+    # --- DROP TARGET (Dragging IN) ---
     def setup_drop_target(self):
-        # We create a target that accepts a FileList (multiple files)
-        # We allow the "COPY" action
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        
-        # Connect the "drop" signal to our function
         target.connect("drop", self.on_file_drop)
-        
-        # Add the target to the whole window content
         self.toolbar_view.add_controller(target)
 
     def on_file_drop(self, target, file_list, x, y):
-        # This triggers when you release the mouse
-        print(f"--- DROP DETECTED! ---")
-        
-        # Get the files from the Gdk.FileList object
         files = file_list.get_files()
-        
         for file_obj in files:
-            # Get the path on disk
             path = file_obj.get_path()
-            print(f"Received: {path}")
-            
-        # Update the UI text to prove it worked
-        self.status_label.set_label(f"Received {len(files)} files!")
-        
-        # Return True to tell the system the drop succeeded
+            if path:
+                new_item = FileItem(path)
+                self.store.append(new_item)
         return True
 
 class DropShelfApp(Adw.Application):
