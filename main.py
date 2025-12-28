@@ -24,9 +24,10 @@ class DropShelfWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
         
-        # Path to our save file (in the current folder for now)
+        # KEY CHANGE: HIDE on Close is back!
+        self.connect("close-request", self.on_close_request)
+        
         self.state_file = os.path.join(os.getcwd(), "state.json")
-
         self.store = Gio.ListStore(item_type=FileItem)
 
         self.toolbar_view = Adw.ToolbarView()
@@ -34,6 +35,13 @@ class DropShelfWindow(Adw.ApplicationWindow):
 
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
+        
+        # Add QUIT button (Essential since X hides)
+        quit_btn = Gtk.Button(icon_name="application-exit-symbolic")
+        quit_btn.add_css_class("flat")
+        quit_btn.set_tooltip_text("Quit DropShelf")
+        quit_btn.connect("clicked", lambda x: app.quit())
+        self.header_bar.pack_end(quit_btn)
 
         self.scrolled_window = Gtk.ScrolledWindow()
         self.toolbar_view.set_content(self.scrolled_window)
@@ -47,47 +55,37 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.scrolled_window.set_child(self.list_view)
 
         self.setup_drop_target()
-        
-        # LOAD DATA ON STARTUP
         self.load_state()
 
-    # --- PERSISTENCE ---
+    def on_close_request(self, window):
+        # Hide the window instead of destroying it
+        self.set_visible(False)
+        return True
+
     def load_state(self):
         if not os.path.exists(self.state_file):
             return
-
         try:
             with open(self.state_file, 'r') as f:
                 data = json.load(f)
-                
-            print(f"Loading {len(data)} items from {self.state_file}")
             for item_data in data:
                 path = item_data.get('path')
-                # Only add if file still exists
                 if path and os.path.exists(path):
                     self.store.append(FileItem(path))
-                    
-        except Exception as e:
-            print(f"Error loading state: {e}")
+        except Exception:
+            pass
 
     def save_state(self):
         data = []
-        # Iterate through the Store
         for i in range(self.store.get_n_items()):
             item = self.store.get_item(i)
-            data.append({
-                "path": item.path,
-                "filename": item.filename
-            })
-            
+            data.append({"path": item.path, "filename": item.filename})
         try:
             with open(self.state_file, 'w') as f:
                 json.dump(data, f, indent=2)
-            print("State saved.")
         except Exception as e:
-            print(f"Error saving state: {e}")
+            print(f"Error saving: {e}")
 
-    # --- ROW CREATION ---
     def on_factory_setup(self, factory, list_item):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         box.set_margin_top(8)
@@ -126,7 +124,6 @@ class DropShelfWindow(Adw.ApplicationWindow):
         icon.set_from_icon_name(file_item.icon_name)
         label.set_label(file_item.filename)
 
-    # --- DRAG SOURCE ---
     def on_drag_prepare(self, source, x, y, list_item):
         file_item = list_item.get_item()
         gfile = Gio.File.new_for_path(file_item.path)
@@ -135,14 +132,12 @@ class DropShelfWindow(Adw.ApplicationWindow):
         bytes_data = GLib.Bytes.new(uri_string.encode('utf-8'))
         return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
 
-    # --- DELETE ---
     def on_delete_clicked(self, btn, list_item):
         position = list_item.get_position()
         if position != Gtk.INVALID_LIST_POSITION:
             self.store.remove(position)
-            self.save_state() # SAVE ON DELETE
+            self.save_state()
 
-    # --- DROP TARGET ---
     def setup_drop_target(self):
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         target.connect("drop", self.on_file_drop)
@@ -157,10 +152,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
                 new_item = FileItem(path)
                 self.store.append(new_item)
                 changes_made = True
-        
         if changes_made:
-            self.save_state() # SAVE ON ADD
-            
+            self.save_state()
         return True
 
 class DropShelfApp(Adw.Application):
@@ -171,8 +164,16 @@ class DropShelfApp(Adw.Application):
     def do_activate(self):
         win = self.props.active_window
         if not win:
+            # First launch: Create the window
             win = DropShelfWindow(self)
-        win.present()
+            win.present()
+        else:
+            # Second launch: Toggle visibility
+            if win.is_visible():
+                win.set_visible(False)
+            else:
+                win.set_visible(True)
+                win.present()
 
 if __name__ == '__main__':
     app = DropShelfApp()
