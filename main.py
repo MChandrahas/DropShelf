@@ -23,6 +23,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
+        self.app = app # Save app reference for shortcuts
         
         # KEYBOARD TRACKER
         self.ctrl_pressed = False
@@ -43,11 +44,14 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
         
+        # PREFERENCES BUTTON (Search Icon)
         self.prefs_btn = Gtk.Button(icon_name="system-search-symbolic")
         self.prefs_btn.add_css_class("flat")
+        self.prefs_btn.set_tooltip_text("Settings & Shortcuts")
         self.prefs_btn.connect("clicked", self.on_prefs_clicked)
         self.header_bar.pack_start(self.prefs_btn)
         
+        # QUIT BUTTON
         quit_btn = Gtk.Button(icon_name="application-exit-symbolic")
         quit_btn.add_css_class("flat")
         quit_btn.connect("clicked", lambda x: app.quit())
@@ -56,7 +60,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.scrolled_window = Gtk.ScrolledWindow()
         self.toolbar_view.set_content(self.scrolled_window)
         
-        # NEW: BOTTOM STATUS BAR (To show Ctrl state)
+        # STATUS BAR
         self.status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.status_bar.add_css_class("toolbar")
         self.status_label = Gtk.Label(label="Batch Mode (Drag All)")
@@ -78,6 +82,66 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.setup_drop_target()
         self.load_state()
 
+    # --- PREFERENCES LOGIC ---
+    def on_prefs_clicked(self, btn):
+        prefs_window = Adw.PreferencesWindow(transient_for=self)
+        prefs_window.set_default_size(500, 600)
+        prefs_window.set_search_enabled(True) # ENABLE THE SEARCH BAR
+
+        # PAGE 1: GENERAL
+        page_general = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
+        prefs_window.add(page_general)
+
+        # Group: Behavior
+        group_behavior = Adw.PreferencesGroup(title="Behavior")
+        page_general.add(group_behavior)
+
+        # Switch: Always Keep Items
+        row_keep = Adw.SwitchRow(title="Always keep items when dragging out")
+        row_keep.set_subtitle("This option also disables the Alt shortcut")
+        group_behavior.add(row_keep)
+
+        # Switch: Download Images
+        row_dl = Adw.SwitchRow(title="Download images from URLs")
+        row_dl.set_subtitle("Automatically save images from dropped links")
+        row_dl.set_active(True) # Default On
+        group_behavior.add(row_dl)
+
+        # Group: Shortcuts
+        group_shortcuts = Adw.PreferencesGroup(title="Shortcuts")
+        page_general.add(group_shortcuts)
+
+        # Action: Show Shortcuts
+        row_shortcuts = Adw.ActionRow(title="Keyboard Shortcuts")
+        row_shortcuts.set_subtitle("View all available shortcuts")
+        row_shortcuts.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        row_shortcuts.set_activatable(True)
+        row_shortcuts.connect("activated", self.show_shortcuts_window)
+        group_shortcuts.add(row_shortcuts)
+
+        prefs_window.present()
+
+    def show_shortcuts_window(self, *args):
+        shortcuts = Gtk.ShortcutsWindow(transient_for=self, modal=True)
+        
+        section = Gtk.ShortcutsSection()
+        section.set_visible(True)
+        shortcuts.set_child(section)
+        
+        group = Gtk.ShortcutsGroup(title="General")
+        section.add_group(group)
+        
+        # Define the shortcuts to display
+        self.add_shortcut_row(group, "<Ctrl>Drag", "Drag Single File")
+        self.add_shortcut_row(group, "Drag", "Batch Drag (All Files)")
+        self.add_shortcut_row(group, "<Ctrl>Q", "Quit Application")
+        
+        shortcuts.present()
+
+    def add_shortcut_row(self, group, accelerator, title):
+        shortcut = Gtk.ShortcutsShortcut(accelerator=accelerator, title=title)
+        group.add_shortcut(shortcut)
+
     # --- KEYBOARD LOGIC ---
     def on_key_pressed(self, controller, keyval, keycode, state):
         if keyval in [Gdk.KEY_Control_L, Gdk.KEY_Control_R]:
@@ -92,22 +156,19 @@ class DropShelfWindow(Adw.ApplicationWindow):
     def update_status_ui(self):
         if self.ctrl_pressed:
             self.status_label.set_label("Single Mode (Drag One)")
-            self.status_label.add_css_class("error") # Turns text red
+            self.status_label.add_css_class("error") 
         else:
             self.status_label.set_label("Batch Mode (Drag All)")
             self.status_label.remove_css_class("error")
 
-    # --- DRAG OUT LOGIC ---
+    # --- DRAG & DROP LOGIC ---
     def on_drag_prepare(self, source, x, y, list_item):
         current_file_item = list_item.get_item()
         uri_list = []
-        
         if self.ctrl_pressed:
-            # Single Mode
             gfile = Gio.File.new_for_path(current_file_item.path)
             uri_list.append(gfile.get_uri())
         else:
-            # Batch Mode
             for i in range(self.store.get_n_items()):
                 item = self.store.get_item(i)
                 gfile = Gio.File.new_for_path(item.path)
@@ -117,7 +178,6 @@ class DropShelfWindow(Adw.ApplicationWindow):
         bytes_data = GLib.Bytes.new(uri_string.encode('utf-8'))
         return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
 
-    # --- DROP IN LOGIC (FIXED) ---
     def setup_drop_target(self):
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         target.connect("drop", self.on_file_drop)
@@ -125,34 +185,24 @@ class DropShelfWindow(Adw.ApplicationWindow):
 
     def on_file_drop(self, target, file_list, x, y):
         files = file_list.get_files()
-        changes_made = False
-        
-        # 1. Get list of paths currently in the store
         existing_paths = set()
         for i in range(self.store.get_n_items()):
             existing_paths.add(self.store.get_item(i).path)
-            
+        
+        changes_made = False
         for file_obj in files:
             path = file_obj.get_path()
-            if path:
-                # 2. Check for Duplicates
-                if path in existing_paths:
-                    print(f"Skipping duplicate: {path}")
-                    continue
-                    
+            if path and path not in existing_paths:
                 new_item = FileItem(path)
                 self.store.append(new_item)
-                existing_paths.add(path) # Add to set in case multiple same files dropped
+                existing_paths.add(path)
                 changes_made = True
         
         if changes_made:
             self.save_state()
         return True
 
-    # --- BOILERPLATE ---
-    def on_prefs_clicked(self, btn):
-        print("Open Preferences")
-
+    # --- BOILERPLATE & FACTORY ---
     def on_close_request(self, window):
         self.set_visible(False)
         return True
