@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import gi
 
 gi.require_version('Gtk', '4.0')
@@ -22,6 +23,9 @@ class DropShelfWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
+        
+        # Path to our save file (in the current folder for now)
+        self.state_file = os.path.join(os.getcwd(), "state.json")
 
         self.store = Gio.ListStore(item_type=FileItem)
 
@@ -43,6 +47,45 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.scrolled_window.set_child(self.list_view)
 
         self.setup_drop_target()
+        
+        # LOAD DATA ON STARTUP
+        self.load_state()
+
+    # --- PERSISTENCE ---
+    def load_state(self):
+        if not os.path.exists(self.state_file):
+            return
+
+        try:
+            with open(self.state_file, 'r') as f:
+                data = json.load(f)
+                
+            print(f"Loading {len(data)} items from {self.state_file}")
+            for item_data in data:
+                path = item_data.get('path')
+                # Only add if file still exists
+                if path and os.path.exists(path):
+                    self.store.append(FileItem(path))
+                    
+        except Exception as e:
+            print(f"Error loading state: {e}")
+
+    def save_state(self):
+        data = []
+        # Iterate through the Store
+        for i in range(self.store.get_n_items()):
+            item = self.store.get_item(i)
+            data.append({
+                "path": item.path,
+                "filename": item.filename
+            })
+            
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            print("State saved.")
+        except Exception as e:
+            print(f"Error saving state: {e}")
 
     # --- ROW CREATION ---
     def on_factory_setup(self, factory, list_item):
@@ -70,13 +113,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
         
         list_item.set_child(box)
         
-        # Configure Drag Source
         drag_source = Gtk.DragSource()
-        
-        # FIX: STRICTLY allow only COPY. 
-        # This forces the file manager to duplicate the file, not move it.
         drag_source.set_actions(Gdk.DragAction.COPY)
-        
         drag_source.connect("prepare", self.on_drag_prepare, list_item)
         box.add_controller(drag_source)
 
@@ -88,24 +126,13 @@ class DropShelfWindow(Adw.ApplicationWindow):
         icon.set_from_icon_name(file_item.icon_name)
         label.set_label(file_item.filename)
 
-    # --- DRAG SOURCE (Dragging OUT) ---
+    # --- DRAG SOURCE ---
     def on_drag_prepare(self, source, x, y, list_item):
         file_item = list_item.get_item()
         gfile = Gio.File.new_for_path(file_item.path)
-        
-        # THE FIX: Manually build a "text/uri-list"
-        # This is the universal format Linux file managers understand.
-        # It looks like: file:///home/user/file.txt\r\n
-        
         uri = gfile.get_uri()
-        uri_string = f"{uri}\r\n" # Must end with new line
-        
-        # Create a GLib.Bytes object
+        uri_string = f"{uri}\r\n"
         bytes_data = GLib.Bytes.new(uri_string.encode('utf-8'))
-        
-        print(f"DEBUG: Dragging URI -> {uri}")
-        
-        # Hand this raw text data to the OS
         return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
 
     # --- DELETE ---
@@ -113,8 +140,9 @@ class DropShelfWindow(Adw.ApplicationWindow):
         position = list_item.get_position()
         if position != Gtk.INVALID_LIST_POSITION:
             self.store.remove(position)
+            self.save_state() # SAVE ON DELETE
 
-    # --- DROP TARGET (Dragging IN) ---
+    # --- DROP TARGET ---
     def setup_drop_target(self):
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         target.connect("drop", self.on_file_drop)
@@ -122,11 +150,17 @@ class DropShelfWindow(Adw.ApplicationWindow):
 
     def on_file_drop(self, target, file_list, x, y):
         files = file_list.get_files()
+        changes_made = False
         for file_obj in files:
             path = file_obj.get_path()
             if path:
                 new_item = FileItem(path)
                 self.store.append(new_item)
+                changes_made = True
+        
+        if changes_made:
+            self.save_state() # SAVE ON ADD
+            
         return True
 
 class DropShelfApp(Adw.Application):
