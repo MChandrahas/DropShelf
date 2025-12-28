@@ -24,6 +24,13 @@ class DropShelfWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title="DropShelf")
         self.set_default_size(500, 400)
         
+        # KEYBOARD TRACKER
+        self.ctrl_pressed = False
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self.on_key_pressed)
+        key_controller.connect("key-released", self.on_key_released)
+        self.add_controller(key_controller)
+        
         self.connect("close-request", self.on_close_request)
         
         self.state_file = os.path.join(os.getcwd(), "state.json")
@@ -32,66 +39,120 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.toolbar_view = Adw.ToolbarView()
         self.set_content(self.toolbar_view)
 
-        # --- HEADER BAR SETUP ---
+        # HEADER
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
         
-        # 1. ADD SEARCH ENTRY
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Search files...")
-        self.search_entry.set_hexpand(True)
-        # We put it in the "Title" area of the header
-        self.header_bar.set_title_widget(self.search_entry)
+        self.prefs_btn = Gtk.Button(icon_name="system-search-symbolic")
+        self.prefs_btn.add_css_class("flat")
+        self.prefs_btn.connect("clicked", self.on_prefs_clicked)
+        self.header_bar.pack_start(self.prefs_btn)
         
-        # Quit Button
         quit_btn = Gtk.Button(icon_name="application-exit-symbolic")
         quit_btn.add_css_class("flat")
-        quit_btn.set_tooltip_text("Quit DropShelf")
         quit_btn.connect("clicked", lambda x: app.quit())
         self.header_bar.pack_end(quit_btn)
 
         self.scrolled_window = Gtk.ScrolledWindow()
         self.toolbar_view.set_content(self.scrolled_window)
-
-        # --- FILTER SETUP ---
-        # 2. Define the filter logic
-        self.filter = Gtk.CustomFilter.new(self.filter_func)
         
-        # 3. Create the FilterModel wrapping the Store
-        self.filter_model = Gtk.FilterListModel(model=self.store, filter=self.filter)
+        # NEW: BOTTOM STATUS BAR (To show Ctrl state)
+        self.status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.status_bar.add_css_class("toolbar")
+        self.status_label = Gtk.Label(label="Batch Mode (Drag All)")
+        self.status_label.set_hexpand(True)
+        self.status_label.set_margin_top(8)
+        self.status_label.set_margin_bottom(8)
+        self.status_bar.append(self.status_label)
+        self.toolbar_view.add_bottom_bar(self.status_bar)
 
-        # 4. Connect Search Entry to Filter
-        self.search_entry.connect("search-changed", self.on_search_changed)
-
+        # LIST VIEW
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", self.on_factory_setup)
         factory.connect("bind", self.on_factory_bind)
 
-        # 5. ListView now looks at filter_model, NOT store
-        selection_model = Gtk.NoSelection(model=self.filter_model)
+        selection_model = Gtk.NoSelection(model=self.store)
         self.list_view = Gtk.ListView(model=selection_model, factory=factory)
         self.scrolled_window.set_child(self.list_view)
 
         self.setup_drop_target()
         self.load_state()
 
-    # --- FILTER LOGIC ---
-    def filter_func(self, item):
-        # Get text from search bar
-        query = self.search_entry.get_text()
+    # --- KEYBOARD LOGIC ---
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        if keyval in [Gdk.KEY_Control_L, Gdk.KEY_Control_R]:
+            self.ctrl_pressed = True
+            self.update_status_ui()
+    
+    def on_key_released(self, controller, keyval, keycode, state):
+        if keyval in [Gdk.KEY_Control_L, Gdk.KEY_Control_R]:
+            self.ctrl_pressed = False
+            self.update_status_ui()
+
+    def update_status_ui(self):
+        if self.ctrl_pressed:
+            self.status_label.set_label("Single Mode (Drag One)")
+            self.status_label.add_css_class("error") # Turns text red
+        else:
+            self.status_label.set_label("Batch Mode (Drag All)")
+            self.status_label.remove_css_class("error")
+
+    # --- DRAG OUT LOGIC ---
+    def on_drag_prepare(self, source, x, y, list_item):
+        current_file_item = list_item.get_item()
+        uri_list = []
         
-        # If empty, show everything
-        if not query:
-            return True
+        if self.ctrl_pressed:
+            # Single Mode
+            gfile = Gio.File.new_for_path(current_file_item.path)
+            uri_list.append(gfile.get_uri())
+        else:
+            # Batch Mode
+            for i in range(self.store.get_n_items()):
+                item = self.store.get_item(i)
+                gfile = Gio.File.new_for_path(item.path)
+                uri_list.append(gfile.get_uri())
+        
+        uri_string = "\r\n".join(uri_list) + "\r\n"
+        bytes_data = GLib.Bytes.new(uri_string.encode('utf-8'))
+        return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
+
+    # --- DROP IN LOGIC (FIXED) ---
+    def setup_drop_target(self):
+        target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        target.connect("drop", self.on_file_drop)
+        self.toolbar_view.add_controller(target)
+
+    def on_file_drop(self, target, file_list, x, y):
+        files = file_list.get_files()
+        changes_made = False
+        
+        # 1. Get list of paths currently in the store
+        existing_paths = set()
+        for i in range(self.store.get_n_items()):
+            existing_paths.add(self.store.get_item(i).path)
             
-        # Check if filename contains query (case-insensitive)
-        return query.lower() in item.filename.lower()
+        for file_obj in files:
+            path = file_obj.get_path()
+            if path:
+                # 2. Check for Duplicates
+                if path in existing_paths:
+                    print(f"Skipping duplicate: {path}")
+                    continue
+                    
+                new_item = FileItem(path)
+                self.store.append(new_item)
+                existing_paths.add(path) # Add to set in case multiple same files dropped
+                changes_made = True
+        
+        if changes_made:
+            self.save_state()
+        return True
 
-    def on_search_changed(self, entry):
-        # Tell the filter it needs to re-run
-        self.filter.changed(Gtk.FilterChange.DIFFERENT)
+    # --- BOILERPLATE ---
+    def on_prefs_clicked(self, btn):
+        print("Open Preferences")
 
-    # --- REST OF THE APP (Unchanged) ---
     def on_close_request(self, window):
         self.set_visible(False)
         return True
@@ -117,8 +178,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
         try:
             with open(self.state_file, 'w') as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"Error saving: {e}")
+        except Exception:
+            pass
 
     def on_factory_setup(self, factory, list_item):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -129,12 +190,10 @@ class DropShelfWindow(Adw.ApplicationWindow):
         
         icon = Gtk.Image()
         icon.set_pixel_size(32)
-        
         label = Gtk.Label()
         label.set_halign(Gtk.Align.START)
         label.set_hexpand(True)
         label.set_ellipsize(3)
-
         delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
         delete_btn.add_css_class("flat")
         delete_btn.connect("clicked", self.on_delete_clicked, list_item)
@@ -142,7 +201,6 @@ class DropShelfWindow(Adw.ApplicationWindow):
         box.append(icon)
         box.append(label)
         box.append(delete_btn)
-        
         list_item.set_child(box)
         
         drag_source = Gtk.DragSource()
@@ -158,50 +216,15 @@ class DropShelfWindow(Adw.ApplicationWindow):
         icon.set_from_icon_name(file_item.icon_name)
         label.set_label(file_item.filename)
 
-    def on_drag_prepare(self, source, x, y, list_item):
-        file_item = list_item.get_item()
-        gfile = Gio.File.new_for_path(file_item.path)
-        uri = gfile.get_uri()
-        uri_string = f"{uri}\r\n"
-        bytes_data = GLib.Bytes.new(uri_string.encode('utf-8'))
-        return Gdk.ContentProvider.new_for_bytes("text/uri-list", bytes_data)
-
     def on_delete_clicked(self, btn, list_item):
-        # NOTE: When filtering, the "position" is in the FILTERED list,
-        # but we need to remove from the REAL store.
-        # We find the item object first.
-        file_item = list_item.get_item()
-        
-        # Find where this item is in the main store
-        # (A bit inefficient for huge lists, but fine for <1000 items)
-        for i in range(self.store.get_n_items()):
-            if self.store.get_item(i) == file_item:
-                self.store.remove(i)
-                break
-        self.save_state()
-
-    def setup_drop_target(self):
-        target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        target.connect("drop", self.on_file_drop)
-        self.toolbar_view.add_controller(target)
-
-    def on_file_drop(self, target, file_list, x, y):
-        files = file_list.get_files()
-        changes_made = False
-        for file_obj in files:
-            path = file_obj.get_path()
-            if path:
-                new_item = FileItem(path)
-                self.store.append(new_item)
-                changes_made = True
-        if changes_made:
+        position = list_item.get_position()
+        if position != Gtk.INVALID_LIST_POSITION:
+            self.store.remove(position)
             self.save_state()
-        return True
 
 class DropShelfApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id='com.dropshelf.app',
-                         flags=Gio.ApplicationFlags.FLAGS_NONE)
+        super().__init__(application_id='com.dropshelf.app', flags=Gio.ApplicationFlags.FLAGS_NONE)
 
     def do_activate(self):
         win = self.props.active_window
