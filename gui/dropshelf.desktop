@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=DropShelf
+Comment=Temporary file collector
+Exec=dropshelf
+Icon=${SNAP}/meta/gui/icon.png
+Type=Application
+Terminal=false
+Categories=Utility;GTK;
+Keywords=drag;drop;shelf;
+StartupNotify=true

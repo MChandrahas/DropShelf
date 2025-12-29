@@ -1,0 +1,49 @@
+name: dropshelf
+base: core24
+version: '0.1.0'
+summary: A temporary drag-and-drop shelf for your files.
+description: |
+  DropShelf is a persistent holding zone for your files. 
+  Drag files in to keep them handy, then drag them out to their final destination.
+
+grade: devel
+confinement: strict
+
+apps:
+  dropshelf:
+    command: bin/dropshelf
+    extensions: [gnome]
+    common-id: com.dropshelf.app
+    desktop: usr/share/applications/dropshelf.desktop
+    plugs:
+      - home
+      - removable-media
+      - network
+      - desktop
+      - desktop-legacy
+      - wayland
+    # NEW: We tell the app to use this specific slot
+    slots:
+      - dbus-dropshelf
+
+parts:
+  dropshelf-code:
+    plugin: dump
+    source: .
+    organize:
+      main.py: bin/dropshelf
+      gui/dropshelf.desktop: usr/share/applications/dropshelf.desktop
+      gui/icon.png: meta/gui/icon.png
+    
+    stage-packages:
+      - python3-gi
+      - libcairo2
+      # REMOVED: gir1.2-gtk-4.0 (Provided by extension)
+      # REMOVED: gir1.2-adw-1   (Provided by extension)
+
+# NEW: We define what the slot actually is
+slots:
+  dbus-dropshelf:
+    interface: dbus
+    bus: session
+    name: com.dropshelf.app

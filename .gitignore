@@ -1,0 +1,22 @@
+cat <<EOF > .gitignore
+# Ignore Build Artifacts
+parts/
+stage/
+prime/
+*.snap
+.snapcraft/
+
+# Ignore Python Cache
+__pycache__/
+*.pyc
+
+# Ignore Local App State
+state.json
+dropshelf_backup_v1.zip
+main_backup_v1.py
+EOF
+
+# Ignore Virtual Environments
+venv/
+.venv/
+env/
