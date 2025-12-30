@@ -3,8 +3,12 @@ base: core24
 version: '0.1.0'
 summary: A temporary drag-and-drop shelf for your files.
 description: |
-  DropShelf is a persistent holding zone for your files. 
-  Drag files in to keep them handy, then drag them out to their final destination.
+
+DropShelf serves as a persistent holding zone to streamline your file management.
+  Drag files onto the shelf to store them temporarily and move them to their destination later.
+  Browse and preview all your dropped items to keep track of your content.
+  Drag images directly from web browsers to download and save them automatically.
+  Group multiple text snippets into a single ready-to-use CSV file.
 
 grade: devel
 confinement: strict
@@ -19,10 +23,11 @@ apps:
       - home
       - removable-media
       - network
+      # 'network-status' is often helpful if you want to check connection before downloading
+      - network-status 
       - desktop
       - desktop-legacy
       - wayland
-    # NEW: We tell the app to use this specific slot
     slots:
       - dbus-dropshelf
 
@@ -35,13 +40,18 @@ parts:
       gui/dropshelf.desktop: usr/share/applications/dropshelf.desktop
       gui/icon.png: meta/gui/icon.png
     
+    # --- FIX 1: Ensure the script is executable ---
+    override-build: |
+      craftctl default
+      chmod +x $CRAFT_PART_INSTALL/bin/dropshelf
+
     stage-packages:
+      - python3
       - python3-gi
       - libcairo2
-      # REMOVED: gir1.2-gtk-4.0 (Provided by extension)
-      # REMOVED: gir1.2-adw-1   (Provided by extension)
+      # --- FIX 2: Required for downloading images via HTTPS ---
+      - ca-certificates 
 
-# NEW: We define what the slot actually is
 slots:
   dbus-dropshelf:
     interface: dbus
