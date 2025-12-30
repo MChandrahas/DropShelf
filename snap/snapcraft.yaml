@@ -2,9 +2,10 @@ name: dropshelf
 base: core24
 version: '0.1.0'
 summary: A temporary drag-and-drop shelf for your files.
+# Added the icon here so you don't need to manually organize it
+icon: gui/icon.png 
 description: |
-
-DropShelf serves as a persistent holding zone to streamline your file management.
+  DropShelf serves as a persistent holding zone to streamline your file management.
   Drag files onto the shelf to store them temporarily and move them to their destination later.
   Browse and preview all your dropped items to keep track of your content.
   Drag images directly from web browsers to download and save them automatically.
@@ -23,7 +24,6 @@ apps:
       - home
       - removable-media
       - network
-      # 'network-status' is often helpful if you want to check connection before downloading
       - network-status 
       - desktop
       - desktop-legacy
@@ -35,22 +35,29 @@ parts:
   dropshelf-code:
     plugin: dump
     source: .
-    organize:
-      main.py: bin/dropshelf
-      gui/dropshelf.desktop: usr/share/applications/dropshelf.desktop
-      gui/icon.png: meta/gui/icon.png
     
-    # --- FIX 1: Ensure the script is executable ---
+    environment:
+      GSK_RENDERER: gl
+    # We manually copy files to avoid the 'venv' crash
     override-build: |
-      craftctl default
+      # 1. Setup directories
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/applications
+      mkdir -p $CRAFT_PART_INSTALL/gui
+
+      # 2. Copy and make executable
+      cp main.py $CRAFT_PART_INSTALL/bin/dropshelf
       chmod +x $CRAFT_PART_INSTALL/bin/dropshelf
+
+      # 3. Copy assets
+      cp gui/dropshelf.desktop $CRAFT_PART_INSTALL/usr/share/applications/
+      cp gui/icon.png $CRAFT_PART_INSTALL/gui/
 
     stage-packages:
       - python3
       - python3-gi
       - libcairo2
-      # --- FIX 2: Required for downloading images via HTTPS ---
-      - ca-certificates 
+      - ca-certificates
 
 slots:
   dbus-dropshelf:

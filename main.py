@@ -3,22 +3,23 @@ import sys
 import os
 import shutil
 import json
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
 import warnings
 import urllib.request
 import base64
+import threading
 from urllib.parse import urlparse, unquote
-from gi.repository import Gtk, Gdk
 
-warnings.filterwarnings("ignore")
+import gi
 
+# These must be called BEFORE importing Gtk, Adw, etc.
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('GdkPixbuf', '2.0')
 
 from gi.repository import Gtk, Adw, Gio, Gdk, GObject, GLib, GdkPixbuf
+
+warnings.filterwarnings("ignore")
+
 
 # --- DATA MODEL ---
 class FileItem(GObject.Object):
@@ -32,12 +33,12 @@ class FileItem(GObject.Object):
         
         try:
             f = Gio.File.new_for_path(self.path)
-            info = f.query_info(Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, 
-                              Gio.FileQueryInfoFlags.NONE, None)
+            info = f.query_info(Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, Gio.FileQueryInfoFlags.NONE, None)
             content_type = info.get_content_type()
             self.gicon = Gio.content_type_get_icon(content_type)
         except:
             self.gicon = Gio.ThemedIcon.new("text-x-generic")
+
 
 # --- MAIN WINDOW ---
 class DropShelfWindow(Adw.ApplicationWindow):
@@ -49,7 +50,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.ctrl_pressed = False
         self.locked = False
         self.search_query = ""
-        self.icon_size = 56  # Try: 48, 64, 72, 96
+        self.icon_size = 56
         
         # LOGIC FLAGS
         self.is_dragging = False   
@@ -143,7 +144,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.filter.changed(Gtk.FilterChange.DIFFERENT)
 
     def filter_func(self, item, user_data=None):
-        if not self.search_query: return True
+        if not self.search_query:
+            return True
         return self.search_query in item.filename.lower()
 
     # --- FACTORY & UI LOGIC ---
@@ -154,11 +156,9 @@ class DropShelfWindow(Adw.ApplicationWindow):
         box.set_margin_start(12)
         box.set_margin_end(12)
         
-        # 1. Wrapper Box: Use variable size
         icon_wrapper = Gtk.Box()
         icon_wrapper.set_size_request(self.icon_size, self.icon_size) 
         
-        # 2. Image Widget: Use variable size
         img_display = Gtk.Image()
         img_display.set_halign(Gtk.Align.FILL)
         img_display.set_valign(Gtk.Align.FILL)
@@ -220,14 +220,16 @@ class DropShelfWindow(Adw.ApplicationWindow):
             pin_btn.remove_css_class("red-icon")
             pin_btn.set_visible(False) 
             
-        try: pin_btn.disconnect_by_func(self.toggle_pin)
-        except: pass
+        try:
+            pin_btn.disconnect_by_func(self.toggle_pin)
+        except:
+            pass
         pin_btn.connect("clicked", self.toggle_pin, item, pin_btn)
 
         # --- IMAGE THUMBNAIL LOGIC ---
         is_potential_image = any(item.filename.lower().endswith(x) for x in ['.jpg','.png','.jpeg','.webp'])
         loaded_as_image = False
-        target_size = self.icon_size  # <--- USES VARIABLE NOW
+        target_size = self.icon_size
         
         if is_potential_image and os.path.exists(item.path):
             try:
@@ -278,7 +280,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
             icon_wrapper.set_overflow(Gtk.Overflow.VISIBLE)
 
     def on_row_enter(self, controller, x, y, list_item):
-        if self.locked: return
+        if self.locked:
+            return
         img, wrapper, lbl, view_btn, pin_btn = list_item.widgets
         view_btn.set_visible(True)
         pin_btn.set_visible(True)
@@ -317,7 +320,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
                     text_content = f.read(1024 * 1024)
                 content_text = Gdk.ContentProvider.new_for_bytes("text/plain", GLib.Bytes.new(text_content.encode('utf-8')))
                 return Gdk.ContentProvider.new_union([content_files, content_text])
-        except: pass
+        except:
+            pass
         return content_files
 
     def on_drag_end(self, source, drag, delete_data, list_item):
@@ -327,7 +331,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
             self.is_self_drop = False
             return 
 
-        if self.locked: return
+        if self.locked:
+            return
         
         if self.ctrl_pressed:
             item = list_item.get_item()
@@ -351,7 +356,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
                 break
 
     # --- CORE ---
-    def get_selected_item(self): return self.selection_model.get_selected_item()
+    def get_selected_item(self):
+        return self.selection_model.get_selected_item()
     
     def toggle_pin(self, btn, item, widget_btn=None):
         item.pinned = not item.pinned
@@ -364,20 +370,26 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.save_state()
         
     def remove_item_by_index(self, index):
-        if self.locked: return
+        if self.locked:
+            return
         item = self.filter_model.get_item(index)
-        if not item: return
+        if not item:
+            return
         if item.path.startswith(self.cache_dir):
             try:
-                if os.path.exists(item.path): os.remove(item.path)
-            except: pass
+                if os.path.exists(item.path):
+                    os.remove(item.path)
+            except:
+                pass
         self.remove_item_from_store(item)
         self.save_state()
         
     def on_delete_clicked(self, btn, list_item):
-        if self.locked: return
+        if self.locked:
+            return
         pos = list_item.get_position()
-        if pos != Gtk.INVALID_LIST_POSITION: self.remove_item_by_index(pos)
+        if pos != Gtk.INVALID_LIST_POSITION:
+            self.remove_item_by_index(pos)
         
     def setup_universal_drop_target(self):
         target = Gtk.DropTarget.new(str, Gdk.DragAction.COPY)
@@ -385,21 +397,27 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.toolbar_view.add_controller(target)
         
     def on_universal_drop(self, target, value, x, y):
-        if self.locked: return False
+        if self.locked:
+            return False
         
         if self.is_dragging:
             self.is_self_drop = True 
             return True 
 
-        if not value: return False
-        uris = value.splitlines(); changes_made = False
+        if not value:
+            return False
+            
+        uris = value.splitlines()
+        changes_made = False
         
         for uri in uris:
-            uri = uri.strip().replace('\x00', ''); 
-            if not uri: continue
+            uri = uri.strip().replace('\x00', '')
+            if not uri:
+                continue
             
             if uri.startswith("data:image"):
-                if self.settings.get("download_images", True): self.save_base64_image(uri)
+                if self.settings.get("download_images", True):
+                    self.save_base64_image(uri)
                 continue
             
             if uri.startswith("http"):
@@ -419,17 +437,25 @@ class DropShelfWindow(Adw.ApplicationWindow):
             
             path = None
             if uri.startswith("file://"):
-                try: gfile = Gio.File.new_for_uri(uri); path = gfile.get_path()
-                except: pass
-            elif uri.startswith("/"): path = uri
+                try:
+                    gfile = Gio.File.new_for_uri(uri)
+                    path = gfile.get_path()
+                except:
+                    pass
+            elif uri.startswith("/"):
+                path = uri
             
             if path and os.path.exists(path): 
-                self.add_file_path_to_store(path); changes_made = True
+                self.add_file_path_to_store(path)
+                changes_made = True
             else:
-                 if self.settings.get("csv_mode", False): self.append_to_csv(uri)
-                 else: self.save_text_content(uri, "dragged_text.txt")
+                 if self.settings.get("csv_mode", False):
+                     self.append_to_csv(uri)
+                 else:
+                     self.save_text_content(uri, "dragged_text.txt")
 
-        if changes_made: self.save_state()
+        if changes_made:
+            self.save_state()
         return True
 
     def append_to_csv(self, text):
@@ -440,7 +466,8 @@ class DropShelfWindow(Adw.ApplicationWindow):
             self.add_file_path_to_store(csv_path)
             self.save_state()
             self.show_temp_status("Added to CSV")
-        except: pass
+        except:
+            pass
 
     def save_text_content(self, content, default_name):
         save_path = self.get_unique_path(default_name)
@@ -449,24 +476,28 @@ class DropShelfWindow(Adw.ApplicationWindow):
                 f.write(content)
             self.add_file_path_to_store(save_path)
             self.save_state()
-        except: pass
+        except:
+            pass
 
     def add_file_path_to_store(self, path):
         for i in range(self.store.get_n_items()):
-            if self.store.get_item(i).path == path: return 
+            if self.store.get_item(i).path == path:
+                return 
         self.store.append(FileItem(path))
 
     def save_base64_image(self, uri):
         try:
             header, encoded = uri.split(",", 1)
             ext = ".png"
-            if "jpeg" in header: ext = ".jpg"
+            if "jpeg" in header:
+                ext = ".jpg"
             save_path = self.get_unique_path("dropped_image" + ext)
             with open(save_path, "wb") as f:
                 f.write(base64.b64decode(encoded))
             self.add_file_path_to_store(save_path)
             self.save_state()
-        except: pass
+        except:
+            pass
 
     def download_image(self, url):
         try:
@@ -476,23 +507,26 @@ class DropShelfWindow(Adw.ApplicationWindow):
             save_path = self.get_unique_path(filename)
             self.status_label.set_label("Downloading...")
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            
             def dl_worker():
                 try:
                     with urllib.request.urlopen(req) as r, open(save_path, 'wb') as f:
                         f.write(r.read())
                     GLib.idle_add(self.on_download_success, save_path)
-                except: GLib.idle_add(self.update_status_ui)
-            import threading
+                except:
+                    GLib.idle_add(self.update_status_ui)
+                    
             threading.Thread(target=dl_worker, daemon=True).start()
-        except: pass
+        except:
+            pass
 
     def get_unique_path(self, filename):
         save_path = os.path.join(self.cache_dir, filename)
         base, ext = os.path.splitext(save_path)
-        c=1
+        c = 1
         while os.path.exists(save_path):
             save_path = f"{base}_{c}{ext}"
-            c+=1
+            c += 1
         return save_path
 
     def on_download_success(self, save_path):
@@ -515,13 +549,17 @@ class DropShelfWindow(Adw.ApplicationWindow):
 
     def on_key_pressed(self, controller, keyval, keycode, state):
         if keyval == Gdk.KEY_q and (state & Gdk.ModifierType.CONTROL_MASK):
-            self.app.quit(); return True
+            self.app.quit()
+            return True
         if keyval == Gdk.KEY_d and (state & Gdk.ModifierType.CONTROL_MASK):
-            self.toggle_lock_mode(); return True
+            self.toggle_lock_mode()
+            return True
         if keyval == Gdk.KEY_p and (state & Gdk.ModifierType.CONTROL_MASK):
-            self.preview_selected(); return True
+            self.preview_selected()
+            return True
         if keyval == Gdk.KEY_question and (state & Gdk.ModifierType.CONTROL_MASK):
-            self.show_shortcuts_window(); return True
+            self.show_shortcuts_window()
+            return True
         if keyval == Gdk.KEY_f and (state & Gdk.ModifierType.CONTROL_MASK):
             is_active = self.btn_search.get_active()
             self.btn_search.set_active(not is_active)
@@ -531,23 +569,28 @@ class DropShelfWindow(Adw.ApplicationWindow):
         is_back = (keyval == Gdk.KEY_BackSpace)
         if is_back or (is_del and not (state & Gdk.ModifierType.SHIFT_MASK)):
             sel_pos = self.selection_model.get_selected()
-            if sel_pos != Gtk.INVALID_LIST_POSITION: self.remove_item_by_index(sel_pos)
+            if sel_pos != Gtk.INVALID_LIST_POSITION:
+                self.remove_item_by_index(sel_pos)
             return True
         if is_del and (state & Gdk.ModifierType.SHIFT_MASK):
             if not self.locked:
                 n = self.filter_model.get_n_items()
-                for i in range(n-1, -1, -1): self.remove_item_by_index(i)
+                for i in range(n-1, -1, -1):
+                    self.remove_item_by_index(i)
             return True
         if keyval in [Gdk.KEY_Control_L, Gdk.KEY_Control_R]:
-            self.ctrl_pressed = True; self.update_status_ui()
+            self.ctrl_pressed = True
+            self.update_status_ui()
         return False
 
     def on_key_released(self, c, k, code, s):
         if k in [Gdk.KEY_Control_L, Gdk.KEY_Control_R]:
-            self.ctrl_pressed = False; self.update_status_ui()
+            self.ctrl_pressed = False
+            self.update_status_ui()
 
     def update_status_ui(self):
-        if self.locked: return 
+        if self.locked:
+            return 
         if self.ctrl_pressed:
             self.status_label.set_label("Single Mode (Drag One)")
             self.status_label.add_css_class("error") 
@@ -564,16 +607,23 @@ class DropShelfWindow(Adw.ApplicationWindow):
             try:
                 l = Gtk.FileLauncher.new(Gio.File.new_for_path(item.path))
                 l.launch(self, None, None)
-            except: pass
+            except:
+                pass
             
-    def on_list_item_activated(self, list_view, position): self.preview_selected()
-    def on_close_request(self, win): self.set_visible(False); return True
+    def on_list_item_activated(self, list_view, position):
+        self.preview_selected()
+        
+    def on_close_request(self, win):
+        self.set_visible(False)
+        return True
 
     def setup_menu_popover(self):
         popover = Gtk.Popover()
         menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        menu_box.set_margin_top(12); menu_box.set_margin_bottom(12)
-        menu_box.set_margin_start(12); menu_box.set_margin_end(12)
+        menu_box.set_margin_top(12)
+        menu_box.set_margin_bottom(12)
+        menu_box.set_margin_start(12)
+        menu_box.set_margin_end(12)
         popover.set_child(menu_box)
 
         lbl_opacity = Gtk.Label(label="Window Opacity")
@@ -626,20 +676,18 @@ class DropShelfWindow(Adw.ApplicationWindow):
         self.save_state()
 
     def show_about_window(self, btn):
-        # --- Indent starts here (4 spaces) ---
         display = Gdk.Display.get_default()
         theme = Gtk.IconTheme.get_for_display(display)
         
-        # Point to the folder containing icon.png
-        icon_folder = os.path.abspath("./gui")
+        # Robust path fix:
+        base_dir = os.path.dirname(os.path.realpath(__file__))
+        icon_folder = os.path.join(base_dir, "gui")
+        
         theme.add_search_path(icon_folder)
 
         about = Adw.AboutWindow(transient_for=self)
         about.set_application_name("DropShelf")
-        
-        # Use the file name "icon" (for icon.png)
         about.set_application_icon("icon") 
-        
         about.set_version("1.0")
         about.set_developer_name("Chandrahas Maddineni")
         about.set_comments("A transient drag-and-drop shelf")
@@ -648,17 +696,21 @@ class DropShelfWindow(Adw.ApplicationWindow):
         about.present()
 
     def load_state(self):
-        if not os.path.exists(self.state_file): return
+        if not os.path.exists(self.state_file):
+            return
         try:
             with open(self.state_file, 'r') as f:
                 data = json.load(f)
             items = data.get("items", [])
             for item_data in items:
-                path = item_data.get('path'); pinned = item_data.get('pinned', False)
-                if path and os.path.exists(path): self.store.append(FileItem(path, pinned))
+                path = item_data.get('path')
+                pinned = item_data.get('pinned', False)
+                if path and os.path.exists(path):
+                    self.store.append(FileItem(path, pinned))
             self.settings = data.get("settings", self.settings)
             self.set_opacity(self.settings.get("opacity", 1.0))
-        except: pass
+        except:
+            pass
 
     def save_state(self):
         items_data = []
@@ -669,13 +721,18 @@ class DropShelfWindow(Adw.ApplicationWindow):
         try:
             with open(self.state_file, 'w') as f:
                 json.dump(data, f, indent=2)
-        except: pass
+        except:
+            pass
 
     def on_prefs_clicked(self, btn):
         prefs_window = Adw.PreferencesWindow(transient_for=self)
         prefs_window.set_default_size(500, 400)
-        kc = Gtk.EventControllerKey(); kc.connect("key-pressed", self.on_key_pressed)
+        
+        # Note: Using a separate controller here to avoid scope issues
+        kc = Gtk.EventControllerKey()
+        kc.connect("key-pressed", self.on_key_pressed)
         prefs_window.add_controller(kc)
+        
         page = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
         prefs_window.add(page)
         grp = Adw.PreferencesGroup(title="Behavior")
@@ -688,7 +745,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
         grp.add(row_csv)
         
         row_dl = Adw.SwitchRow(title="<b>Download images</b>")
-        row_dl.set_subtitle("Automatically save dropped image URLs to cache. The following image formats are currently supported: png, jpg, jpeg, webp, gif, svg")
+        row_dl.set_subtitle("Automatically save dropped image URLs to cache.")
         row_dl.set_active(self.settings.get("download_images", True))
         row_dl.connect("notify::active", lambda r,p: self.update_setting("download_images", r.get_active()))
         grp.add(row_dl)
@@ -723,13 +780,16 @@ class DropShelfWindow(Adw.ApplicationWindow):
         if os.path.exists(self.cache_dir):
             try:
                 shutil.rmtree(self.cache_dir)
-            except: pass
+            except:
+                pass
         os.makedirs(self.cache_dir, exist_ok=True)
         self.save_state()
         btn.set_label("All Data Cleared!")
         GLib.timeout_add(2000, lambda: btn.set_label("Clear Cache") or False)
 
-    def update_setting(self, key, val): self.settings[key] = val; self.save_state()
+    def update_setting(self, key, val):
+        self.settings[key] = val
+        self.save_state()
 
     def show_shortcuts_window(self):
         ui_str = """
@@ -818,6 +878,7 @@ class DropShelfWindow(Adw.ApplicationWindow):
 class DropShelfApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id='com.dropshelf.app', flags=Gio.ApplicationFlags.FLAGS_NONE)
+    
     def do_activate(self):
         # --- CUSTOM CSS ---
         css_provider = Gtk.CssProvider()
@@ -832,8 +893,12 @@ class DropShelfApp(Adw.Application):
         )
         # ------------------
         win = self.props.active_window
-        if not win: win = DropShelfWindow(self); win.present()
-        else: win.set_visible(True); win.present()
+        if not win:
+            win = DropShelfWindow(self)
+            win.present()
+        else:
+            win.set_visible(True)
+            win.present()
 
 if __name__ == '__main__':
     app = DropShelfApp()
