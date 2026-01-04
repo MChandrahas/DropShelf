@@ -1,6 +1,7 @@
 # This Snap project is on hold because of the GTK4 limitations (chack the branch "refactor-cleanup" for updated code)
 
-The Drag-and-Drop fails when I try to drop the files from shelf to Nautilus.
+The Drag-and-Drop fails when I try to drop the files from shelf to Nautilus. 
+(please keep an eye for the fix of Drag-and-Drop compatibility for GTK4 on the snapcraft forum.)
 
 ## The Problem
 
