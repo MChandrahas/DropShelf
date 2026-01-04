@@ -1,6 +1,7 @@
 name: dropshelf
 base: core24
 version: '0.1.0'
+<<<<<<< Updated upstream
 summary: A temporary drag-and-drop shelf for your files.
 # Added the icon here so you don't need to manually organize it
 icon: gui/icon.png 
@@ -10,6 +11,12 @@ description: |
   Browse and preview all your dropped items to keep track of your content.
   Drag images directly from web browsers to download and save them automatically.
   Group multiple text snippets into a single ready-to-use CSV file.
+=======
+summary: A temporary drag-and-drop shelf for your files
+description: |
+  DropShelf serves as a persistent holding zone to streamline your file management.
+  Drag files onto the shelf to store them temporarily and move them to their destination later.
+>>>>>>> Stashed changes
 
 grade: devel
 confinement: strict
@@ -18,12 +25,12 @@ apps:
   dropshelf:
     command: bin/dropshelf
     extensions: [gnome]
-    common-id: com.dropshelf.app
     desktop: usr/share/applications/dropshelf.desktop
     plugs:
       - home
       - removable-media
       - network
+<<<<<<< Updated upstream
       - network-status 
       - desktop
       - desktop-legacy
@@ -59,8 +66,33 @@ parts:
       - libcairo2
       - ca-certificates
 
+=======
+      - network-status
+    slots:
+      - dbus-dropshelf
+
+>>>>>>> Stashed changes
 slots:
   dbus-dropshelf:
     interface: dbus
     bus: session
     name: com.dropshelf.app
+
+parts:
+  dropshelf:
+    plugin: nil
+    source: .
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/opt/dropshelf
+      cp main.py $CRAFT_PART_INSTALL/opt/dropshelf/
+      
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/applications
+      cp gui/dropshelf.desktop $CRAFT_PART_INSTALL/usr/share/applications/
+      
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui
+      cp gui/icon.png $CRAFT_PART_INSTALL/meta/gui/
+      
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      echo '#!/bin/bash' > $CRAFT_PART_INSTALL/bin/dropshelf
+      echo 'exec python3 "$SNAP/opt/dropshelf/main.py" "$@"' >> $CRAFT_PART_INSTALL/bin/dropshelf
+      chmod +x $CRAFT_PART_INSTALL/bin/dropshelf
