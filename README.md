@@ -18,7 +18,7 @@ Features:
 ## Installation
 
 ### Debian/Ubuntu
-Download the latest `.deb` file from the [Releases Page](/releases).
+Download the latest `.deb` file from the [Releases Page](https://github.com/MChandrahas/DropShelf/releases)..
 
 ```bash
 sudo dpkg -i dropshelf_0.1.0_all.deb
