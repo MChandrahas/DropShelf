@@ -1,20 +1,7 @@
 cat <<EOF > .gitignore
-# Ignore Virtual Environments (The heavy stuff)
-venv/
-.venv/
-env/
+*.deb
+packaging/build/
 __pycache__/
 *.pyc
-
-# Ignore Build Artifacts
-parts/
-stage/
-prime/
-*.snap
-.snapcraft/
-
-# Ignore Local App State
-state.json
-dropshelf_backup_v1.zip
-main_backup_v1.py
+.DS_Store
 EOF

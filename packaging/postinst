@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+# Update icon cache so the logo appears immediately
+if which gtk-update-icon-cache >/dev/null 2>&1 ; then
+    gtk-update-icon-cache /usr/share/pixmaps
+fi
+
+# Update desktop database so the app appears in search immediately
+if which update-desktop-database >/dev/null 2>&1 ; then
+    update-desktop-database /usr/share/applications
+fi

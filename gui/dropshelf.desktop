@@ -2,7 +2,7 @@
 Name=DropShelf
 Comment=Temporary file collector
 Exec=dropshelf
-Icon=${SNAP}/meta/gui/icon.png
+Icon=dropshelf
 Type=Application
 Terminal=false
 Categories=Utility;GTK;
